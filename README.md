@@ -3,16 +3,85 @@
 Run a SPICE netlist in **ngspice** and SystemVerilog RTL in **xezim**, in
 lockstep, with values crossing between them every timestep.
 
-```
-  RTL (xezim)                          analog (ngspice)
-  ------------                         ----------------
-  phase detector   --- up/dn ------>   charge pump
-  divider          <-- vco out -----   ring VCO  <--- loop filter
-```
-
 Neither simulator was modified. The bridge is a DPI-C library that xezim
 `dlopen`s, driving `libngspice` through the synchronisation callbacks
 `ngSpice_Init_Sync` exists for.
+
+## The system, and where the boundary falls
+
+The PLL is one loop, cut in two. The VCO, the charge pump and the loop
+filter are transistor-level SPICE; the phase detector and the divider are
+ordinary RTL. Neither half is a model of the other.
+
+```mermaid
+flowchart LR
+  subgraph XEZIM["xezim &mdash; SystemVerilog RTL"]
+    direction TB
+    REF["ref_clk<br/>10 MHz, generated in the testbench"]
+    PFD["<b>pfd</b><br/>two flops + reset AND<br/>ref_clk, div_clk &rarr; up, dn"]
+    DIV["<b>divn</b>, N=40<br/>clk_in &rarr; clk_out"]
+    SQ["threshold at 1.65 V<br/>real &rarr; logic"]
+  end
+
+  subgraph BR["ams_bridge.so &mdash; DPI-C"]
+    direction TB
+    ADV["ams_advance(t)<br/><i>digital grants time</i>"]
+    SET["ams_set()<br/><i>digital &rarr; analog</i>"]
+    GET["ams_get()<br/><i>analog &rarr; digital</i>"]
+  end
+
+  subgraph NG["ngspice &mdash; SPICE netlist"]
+    direction TB
+    SRC["Vpupb, Vpdn<br/><i>external sources</i>"]
+    CP["<b>cpump</b><br/>PMOS + NMOS<br/>pupb, pdn &rarr; dra"]
+    LF["<b>lpfilt</b><br/>3rd-order RC<br/>dra &rarr; vout"]
+    VCO["<b>ro_vco</b><br/>7-stage ring, BSIM3<br/>cont &rarr; aout"]
+  end
+
+  REF --> PFD
+  PFD -->|"up, dn"| SET
+  SET --> SRC
+  SRC --> CP
+  CP -->|"dra"| LF
+  LF -->|"vout"| VCO
+  VCO -->|"aout"| GET
+  GET --> SQ
+  SQ -->|"vco_clk"| DIV
+  DIV -->|"div_clk"| PFD
+  ADV -.->|"lockstep"| NG
+
+  classDef dig fill:#dbeafe,stroke:#1e40af,color:#0b1f4b
+  classDef ana fill:#fee2e2,stroke:#991b1b,color:#450a0a
+  classDef brg fill:#f5f5f4,stroke:#57534e,color:#1c1917
+  class REF,PFD,DIV,SQ dig
+  class SRC,CP,LF,VCO ana
+  class ADV,SET,GET brg
+```
+
+### The two crossings
+
+Everything else stays on its own side. These are the only places the two
+simulators touch:
+
+| direction | signal | how |
+|---|---|---|
+| digital &rarr; analog | `up`, `dn` &rarr; `pdn`, `pupb` | `ams_set()` writes two `external` voltage sources |
+| analog &rarr; digital | `aout` &rarr; `vco_clk` | `ams_get()` reads the node; the testbench thresholds it at 1.65 V |
+
+`up` drives `pdn` **active high**; `dn` drives `pupb` **active low** (a PMOS
+gate). That polarity was derived from a measured Kvco sign and measured
+per-state pump currents, not from the port names &mdash; with a negative
+Kvco, UP must select the *sinking* control, which is the opposite of the
+textbook wiring.
+
+### What runs where
+
+| block | lives in | why |
+|---|---|---|
+| ring VCO, charge pump, loop filter | ngspice | transistor-level; the thing being characterised |
+| phase detector, divider | xezim | already RTL in any real design |
+| reference clock | xezim | a testbench stimulus, not part of the design |
+| time | xezim | the digital side grants the analog a window and waits |
 
 ## Why
 
