@@ -12,10 +12,12 @@
 //
 // TIME. A bare delay is ONE TIMESCALE UNIT, so the `timescale` above is
 // what sets the coupling granularity, and the analog is granted exactly as
-// far as $realtime has reached. Do not write `100ns` and expect 100
-// nanoseconds: measured on this simulator, a unit-suffixed literal is NOT
-// scaled by the timescale (`100ns` under 1fs/1fs evaluates to 100.0, not
-// 100_000_000), so every delay here is a bare number in timescale units.
+// far as $realtime has reached. Every delay here is a bare number in
+// timescale units, which avoids a simulator bug in unit-suffixed literals:
+// on xezim 0.10.5 the timescale scaling required by IEEE 1800-2017 5.8 is
+// applied at run time but NOT at elaboration, so `localparam realtime T =
+// 100ns` under 1fs/1fs yields 100.0 where `#100ns` correctly yields 1e8.
+// A tick constant takes the broken path. See tb_rc.sv for the full table.
 //
 // POLARITY. Taken from what the pipeline MEASURED on this same netlist,
 // not from the port names:

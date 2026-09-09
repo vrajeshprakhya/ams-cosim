@@ -40,15 +40,27 @@ module tb;
 
   // 100 ns digital tick, and the analog is granted exactly the same.
   //
-  // Written as a BARE number, not `100ns`. Measured on this simulator: with
-  // `timescale 1fs/1fs` the literal `100ns` evaluates to 100.0 rather than
-  // to 100_000_000, i.e. unit-suffixed time literals are not scaled by the
-  // timescale, while a bare delay is one nanosecond (which is also what
-  // --max-time documents). Depending on the suffix here asked the analog to
-  // advance to 3.5e-11 s: it never moved, every reading came back
-  // 0.000000, and the digital clock looked frozen at zero while in fact
-  // running normally. A units mistake in a coupling does not announce
-  // itself, it produces a flat waveform.
+  // Written as a BARE number, not `100ns`, because of a simulator bug that
+  // lives exactly here. IEEE 1800-2017 5.8 says a time literal "is
+  // interpreted as a realtime value scaled to the current time unit", with
+  // no exemption for constant expressions -- but on xezim 0.10.5 the
+  // scaling is applied only where the literal is evaluated at RUN time:
+  //
+  //   localparam / const / parameter port / module-level var initialiser
+  //                                     100ns -> 100.0        WRONG
+  //   procedural assignment, automatic-var init, #100ns, #(100ns)
+  //                                     100ns -> 100000000.0  right
+  //
+  // (measured under `timescale 1fs/1fs`, where 100 ns is 1e8 time units.)
+  // So the broken path is precisely the one a tick constant takes. Writing
+  // the suffix here asked the analog to advance to 3.5e-11 s: it never
+  // moved, every reading came back 0.000000, and the digital clock looked
+  // frozen at zero while in fact running normally. A units mistake in a
+  // coupling does not announce itself, it produces a flat waveform.
+  //
+  // A bare number sidesteps the bug entirely rather than depending on which
+  // side of it a given expression falls on, so this stays as it is even
+  // once the bug is fixed.
   localparam int  TICK_NS   = 100;     // bare delay units == ns here
   localparam real SEC_PER_NS = 1.0e-9;
   localparam real TICK_S    = 100.0e-9;
