@@ -57,6 +57,7 @@ module tb;
   localparam int  NDIV       = 40;
   localparam real REF_HZ     = 10.0e6;
   localparam int  REF_HALF_TICKS = 500;  // 500 * 100 ps = 50 ns -> 10 MHz
+  localparam real TOL_PCT    = 2.0;      // see the verdict below
 
   logic samp = 1'b0;                     // the coupling tick
   logic ref_clk = 1'b0;
@@ -65,7 +66,7 @@ module tb;
   real  t_dig, v_aout, v_ctrl;
   int   ticks, refc, vco_edges, rc;
   int   report_at, up_ticks, dn_ticks;
-  real  t_win0;
+  real  t_win0, f_meas, f_targ;
   int   edges_win0;
 
   // The design's own RTL, unmodified.
@@ -144,10 +145,38 @@ module tb;
       edges_win0 = vco_edges;
     end
     if (ticks == 29000) begin
+      f_meas = real'(vco_edges - edges_win0) / ((t_dig - t_win0) * 1e6);
+      f_targ = REF_HZ * NDIV / 1e6;
+      v_ctrl = ams_get("vout");
       $display("PLL f_vco = %0.2f MHz over %0.1f ns  (target %0.2f MHz)",
-               real'(vco_edges - edges_win0) / ((t_dig - t_win0) * 1e6),
-               (t_dig - t_win0) * 1e9, REF_HZ * NDIV / 1e6);
-      $display("PLL-DONE vctrl=%0.4f V", ams_get("vout"));
+               f_meas, (t_dig - t_win0) * 1e9, f_targ);
+      $display("PLL-DONE vctrl=%0.4f V", v_ctrl);
+
+      // A VERDICT, not just numbers. The output being N x the reference is
+      // what says the loop closed; a loop that has run away, stalled, or
+      // been wired backwards is also quiet, and prints just as tidily.
+      //
+      // TOL_PCT is 2%, not tighter, because this example runs 3 us so it
+      // finishes while you watch, and 3 us is mid-settle -- the 20 us run
+      // reaches 400.00 MHz exactly, this one lands near 397.5. The check
+      // still separates a working loop from a broken one by a wide margin:
+      // an inverted loop runs away to a rail, and an open one sits at
+      // whatever the VCO free-runs at.
+      // One string literal each, not two adjacent ones: SystemVerilog has
+      // no C-style adjacent-literal concatenation and the parser is right
+      // to refuse it.
+      if (vco_edges < 100)
+        $display("PLL-FAIL the VCO produced almost no edges (%0d) -- the analog side is not oscillating", vco_edges);
+      else if (v_ctrl < 0.2 || v_ctrl > 3.1)
+        $display("PLL-FAIL control voltage %0.4f V has run to a rail -- the loop is inverted or open", v_ctrl);
+      else if (((f_meas - f_targ) / f_targ) >  TOL_PCT / 100.0 ||
+               ((f_meas - f_targ) / f_targ) < -TOL_PCT / 100.0)
+        $display("PLL-FAIL %0.2f MHz is %0.2f%% off %0.2f MHz",
+                 f_meas, 100.0 * (f_meas - f_targ) / f_targ, f_targ);
+      else
+        $display("PLL-OK locked within %0.2f%% of %0.2f MHz at %0.4f V",
+                 100.0 * (f_meas - f_targ) / f_targ, f_targ, v_ctrl);
+
       ams_close();
       $finish;
     end

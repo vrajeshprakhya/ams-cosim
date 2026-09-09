@@ -67,11 +67,21 @@ above are the 20 us run.)
 export NGSPICE_SRC=~/ngspice-46-shared
 export XEZIM=~/xezim/target/release/xezim
 
-./build.sh          # just build ams_bridge.so
-./build.sh rc       # the lockstep check          (~1 s)
-./build.sh pll      # the PLL                     (~20 s at 3 us)
-./tests/run_tests.sh
+./build.sh              # just build ams_bridge.so
+./build.sh rc           # the lockstep check      (~1 s)
+./build.sh pll          # the PLL                 (~17 s at 3 us)
+
+./tests/run_tests.sh    # both, with a verdict    (~17 s)
+./tests/run_tests.sh rc # plumbing only           (~1 s)
 ```
+
+Both examples are gated, and they check different things. The RC checks the
+PLUMBING — that the two simulators are actually in step. The PLL checks the
+OUTCOME, which is a separate question: every part of the plumbing can work
+while the loop is wired backwards, and it will still run, still print, and
+still look like a PLL. So the PLL testbench asserts that the VCO oscillates
+at all, that the control voltage has not run to a rail, and that the output
+settles at N x the reference.
 
 ## Writing your own
 
@@ -176,4 +186,4 @@ find out whether one of them is right.
 | `src/ams_bridge.c` | the DPI library |
 | `examples/rc/` | smallest circuit that proves lockstep. tau = 1 us, drive toggled every 5 tau, so the capacitor must reach within 0.67% of the rail — checkable, not impressionistic |
 | `examples/pll/` | the loop: analog partition, plus an ordinary RTL detector and divider |
-| `tests/run_tests.sh` | the RC case as a gate; skips when the toolchain is absent |
+| `tests/run_tests.sh` | both examples as a gate; skips when the toolchain is absent |
