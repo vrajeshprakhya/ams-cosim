@@ -326,6 +326,31 @@ of PLL is 2.5 minutes. This produces a reference; it is not a per-change
 verification loop. Behavioural models exist for that, and this is how you
 find out whether one of them is right.
 
+## Licence
+
+Apache-2.0 — see [LICENSE](LICENSE).
+
+What this links to matters more than usual, because the bridge is a shared
+library loaded into a simulator:
+
+| | licence | what it means here |
+|---|---|---|
+| this repo | Apache-2.0 | permissive, with an explicit patent grant |
+| **ngspice** | Modified BSD for the source, with a few narrowly-scoped exceptions listed in its own `COPYING` | permissive; linking `libngspice` carries attribution, not copyleft |
+| **xezim** | Apache-2.0 | the bridge is `dlopen`ed by it, not linked into it |
+
+So nothing here obliges a downstream user to open their own work. That is
+deliberate: this exists to sit inside somebody's verification flow, and a
+copyleft licence on a library loaded into a simulator would make that a
+question for their legal team rather than their CAD team.
+
+Neither simulator is modified or redistributed by this repo — it builds
+against them.
+
+None of the above is legal advice; check the upstream licence files
+yourself before adopting it. ngspice's exceptions in particular are worth
+reading if you redistribute a built `libngspice`.
+
 ## Layout
 
 | path | what |
