@@ -103,6 +103,13 @@ echo
 echo "== waveforms =="
 if python3 tests/check_waves.py; then :; else fail=1; fi
 
+# What the coupling itself costs in edge timing. The first question anyone
+# asks about a polled analog-to-digital crossing, answered with a number
+# and bounded rather than left to be discovered by the audience.
+echo
+echo "== coupling jitter =="
+if python3 tests/check_coupling_jitter.py; then :; else fail=1; fi
+
 echo
 if [ "$fail" -ne 0 ]; then
   echo "VERDICT: FAIL"

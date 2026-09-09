@@ -186,6 +186,50 @@ the coupling held; a drift would show there and nowhere else. It also
 requires the merge to reproduce both counts exactly, and no analog signal to
 share a VCD identifier with a digital one.
 
+## What the coupling costs
+
+The digital side squares the VCO output by reading `v(aout)` every coupling
+tick and comparing it to a threshold, which quantises every edge onto the
+tick grid. That is the first thing anyone asks about a polled
+analog-to-digital crossing, so it is measured rather than argued about —
+the rawfile holds where the crossing really was, at ngspice's own
+timepoints, so the artifact is a subtraction.
+
+`tests/check_coupling_jitter.py`, on the shipped example (100 ps tick,
+20 ps analog step, ~400 MHz VCO):
+
+```
+  mean    58.0 ps   <- sampling LAG
+  stdev   29.6 ps   <- sampling JITTER
+  max    119.8 ps   <- one tick plus one analog step
+
+  per VCO edge           : 4.24 deg rms
+  on the /40 feedback edge: 0.0296 % of the 100 ns reference
+```
+
+Those are the numbers uniform quantisation predicts: a lag of about half a
+tick and a jitter of tick/sqrt(12) = 28.9 ps. The check requires the
+measurement to MATCH that prediction, because agreement means the mechanism
+is understood. A number outside it would mean something else was happening
+— the analog running ahead, an edge missed, a threshold crossed twice — and
+those have very different consequences.
+
+The `max` bound is one tick **plus one analog step**, not one tick:
+`ams_get` returns ngspice's most recently computed value, which can be up
+to one of its own steps stale. 119.8 ps against 100 + 20 is exactly that.
+
+### So what is this good for
+
+| use | verdict |
+|---|---|
+| lock, capture range, settling | fine — 0.03% of the reference period after the divider |
+| loop dynamics, stability, sign errors | fine — this is what it is for |
+| **jitter, phase noise, spurs** | **no** — the coupling injects ~30 ps rms of its own, which is the same order as a real PLL jitter budget |
+
+To narrow the artifact, shrink the tick: the lag and jitter fall linearly
+with it. The cost is linear too, because the analog is granted a window per
+tick.
+
 ## Writing your own
 
 The analog side declares whatever the digital drives as an `external`
@@ -292,3 +336,4 @@ find out whether one of them is right.
 | `tools/raw2vcd.py` | ngspice rawfile to VCD, and merges with the digital dump. Nothing is resampled |
 | `tests/run_tests.sh` | both examples as a gate; skips when the toolchain is absent |
 | `tests/check_waves.py` | the waveform files, checked against numbers rather than looked at |
+| `tests/check_coupling_jitter.py` | what the coupling costs in edge timing, measured against what quantisation predicts |
