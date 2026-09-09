@@ -1,0 +1,152 @@
+* PLL analog partition, driven from RTL through the co-simulation bridge.
+*
+* DERIVED from work/pll_analog.cir: identical cells and subcircuits, with
+* the top level replaced so the charge pump's gate drives are EXTERNAL
+* -- their values come from the digital simulator rather than from this
+* deck. The detector and the divider are RTL and do not appear here at all,
+* which is the whole point.
+*
+* Regenerate by taking work/pll_analog.cir up to its top-level section and
+* appending the block at the end of this file.
+*
+* Only the blocks that come from schematic: the ring VCO, the charge-pump
+* switches, and the passive loop filter. The phase-frequency detector and
+* the divide-by-40 live in RTL and are NOT here -- which is the whole point
+* of this deck. There are therefore no XSPICE code models and no
+* adc_bridge/dac_bridge anywhere: the analog/digital boundary is a port,
+* not a device.
+*
+* Consequences, stated so they are not mistaken for oversights:
+*   - the VCO's output is an ANALOG node. There is no digital companion
+*     output, because the thing that squares it up is the RTL's own input.
+*   - the charge pump's UP/DOWN controls arrive as plain gate voltages on
+*     nodes `pupb` (active low, PMOS gate) and `pdn` (active high, NMOS
+*     gate). In the RTL flow those are driven by the PFD.
+*   - `cont` is driven by the filter, which is driven by the pump. The loop
+*     is NOT closed in SPICE; closing it is the RTL testbench's job.
+
+.param vcc=3.3
+
+*==================== transistor models ====================
+.model N1 NMOS
+*+version = 3.2.4
++version = 3.3.0
++Level=        8
++Tnom=27.0
++Nch= 2.498E+17  Tox=9E-09 Xj=1.00000E-07
++Lint=9.36e-8 Wint=1.47e-7
++Vth0= .6322    K1= .756  K2= -3.83e-2  K3= -2.612
++Dvt0= 2.812  Dvt1= 0.462  Dvt2=-9.17e-2
++Nlx= 3.52291E-08  W0= 1.163e-6
++K3b= 2.233
++Vsat= 86301.58  Ua= 6.47e-9  Ub= 4.23e-18  Uc=-4.706281E-11
++Rdsw= 650  U0= 388.3203 wr=1
++A0= .3496967 Ags=.1    B0=0.546    B1= 1
++Keta=-3.605872E-02  A1= 2.778747E-02  A2= .9
++Voff=-6.735529E-02  NFactor= 1.139926  Cit= 1.622527E-04
++Eta0= 1.0281729E-02  Etab=-5.042203E-03
++Dsub= .31871233 Pclm= 1.114846
++Pdiblc1= 2.45357E-03  Pdiblc2= 6.406289E-03
++Drout= .31871233  Pscbe1= 5000000  Pscbe2= 5E-09
++Pvag= 0 delta=0.01
+
+.model P1 PMOS
++version = 3.3.0
++Level=        8
++Tnom=27.0
++Nch= 3.533024E+17  Tox=9E-09 Xj=1.00000E-07
++Lint=6.23e-8 Wint=1.22e-7
++Vth0=-.6732829 K1= .8362093  K2=-8.606622E-02  K3= 1.82
++Dvt0= 1.903801  Dvt1= .5333922  Dvt2=-.1862677
++Nlx= 1.28e-8  W0= 2.1e-6
++K3b= -0.24
++Vsat= 103503.2  Ua= 1.39995E-09  Ub= 1.e-19  Uc=-2.73e-11
++Rdsw= 460  U0= 138.7609
++A0= .4716551 Ags=0.12
++Keta=-1.871516E-03  A1= .3417965  A2= 0.83
++Voff=-.074182  NFactor= 1.54389  Cit=-1.015667E-03
++Eta0= 6.024776E-02  Etab=-4.64593E-03
++Dsub= .23222404 Pclm= .989
++Pdiblc1= 2.07418E-02  Pdiblc2= 1.33813E-3
++Drout= .3222404  Pscbe1= 118000  Pscbe2= 1E-09
++Pvag= 0
+
+*==================== cells ====================
+.subckt gaincell dd ss sub well co in- in+ out- out+
+mn1  out- in+   ss  sub  n1  w=2u  l=0.35u  AS=3p AD=3p PS=4u PD=4u
+mn2  out- out+  ss  sub  n1  w=2u  l=0.35u  AS=3p AD=3p PS=4u PD=4u
+mn3  out+ out-  ss  sub  n1  w=2u  l=0.35u  AS=3p AD=3p PS=4u PD=4u
+mn4  out+ in-   ss  sub  n1  w=2u  l=0.35u  AS=3p AD=3p PS=4u PD=4u
+mp1  out- co    dd  well  p1  w=4u l=0.35u  AS=7p AD=7p PS=6u PD=6u
+mp2  out+ co    dd  well  p1  w=4u l=0.35u  AS=7p AD=7p PS=6u PD=6u
+.ends gaincell
+
+.subckt inv1 dd ss sub well in out
+mn1  out in  ss  sub  n1  w=2u  l=0.35u  AS=3p AD=3p PS=4u PD=4u
+mp1  out in  dd  well  p1  w=4u l=0.35u  AS=7p AD=7p PS=6u PD=6u
+.ends inv1
+
+.subckt inv2 dd ss sub well in out
+mn1  out in  ss  sub  n1  w=6u  l=0.35u  AS=12p AD=12p PS=16u PD=16u
+mp1  out in  dd  well  p1  w=12u l=0.35u  AS=24p AD=24p PS=28u PD=28u
+.ends inv2
+
+*==================== ring VCO ====================
+* Analog output only. Whatever squares this into a clock is downstream.
+.subckt ro_vco aout cont dd
+vin  inm1 outp7 dc 0
+vin2 inp1 outm7 dc 0
+vss  ss   0 dc 0
+ve   sub  0 dc 0
+vpe  well 0 dc 3.3
+xinv1 dd ss sub well cont inm1  inp1  outm1 outp1 gaincell
+xinv2 dd ss sub well cont outp1 outm1 outm2 outp2 gaincell
+xinv3 dd ss sub well cont outp2 outm2 outm3 outp3 gaincell
+xinv4 dd ss sub well cont outp3 outm3 outm4 outp4 gaincell
+xinv5 dd ss sub well cont outp4 outm4 outm5 outp5 gaincell
+xinv6 dd ss sub well cont outp5 outm5 outm6 outp6 gaincell
+xinv7 dd ss sub well cont outp6 outm6 outm7 outp7 gaincell
+xinv11 dd 0 sub well outm1 outm2 inv1
+xinv12 dd 0 sub well outm2 aout inv2
+cout  aout 0 0.2pF
+.ends ro_vco
+
+*==================== charge pump ====================
+* UP is active low on the PMOS gate, DOWN active high on the NMOS gate --
+* gate voltages, driven by the RTL detector. No bridge.
+.subckt cpump pupb pdn dra dd
+vss ss 0 dc 0
+mnd dra pdn  ss ss n1 w=12u l=0.35u AS=24p AD=24p PS=28u PD=28u
+mpd dra pupb dd dd p1 w=24u l=0.35u AS=48p AD=48p PS=52u PD=52u
+.ends cpump
+
+*==================== loop filter ====================
+* Third-order passive. Driven by current from the pump.
+.subckt lpfilt dra vout
+R1 dra  int1 300
+R2 int1 c1   200
+C1 c1   0    10n
+C2 int1 0    5n
+R3 int1 vout 50
+C3 vout 0    0.5n
+.ends lpfilt
+
+*==================== top level, driven from RTL ====================
+* The pump's gate drives are EXTERNAL: their values come from the digital
+* simulator through the bridge, not from this deck. That is the whole
+* point -- the detector and the divider are RTL and never appear here.
+vdd dd 0 dc {vcc}
+Vpupb pupb 0 dc 0 external
+Vpdn  pdn  0 dc 0 external
+
+xcp  pupb pdn dra dd cpump
+xlf  dra vout lpfilt
+xvco aout vout dd ro_vco
+
+* Start near the control voltage the composed RNM settled at (1.8086 V), so
+* this run checks the loop HOLDS lock rather than paying for a full
+* acquisition -- at 50 ps steps an acquisition is hours of transistor-level
+* SPICE, and holding lock is the cheaper question that still exercises
+* every path around the loop.
+.ic v(vout)=1.8086 v(dra)=1.8086
+.end

@@ -1,0 +1,10 @@
+# Built by build.sh against whichever libngspice this machine has.
+# Machine-specific and regenerated in a second, so it does not belong in
+# the repo -- and a stale committed copy is worse than none, because it
+# would be used in preference to a fresh build and link against the wrong
+# ngspice, failing in a way that points at the bridge rather than the file.
+ams_bridge.so
+*.so
+*.o
+*.vcd
+xezim_cov.json

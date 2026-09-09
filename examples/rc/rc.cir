@@ -1,0 +1,14 @@
+* Smallest circuit that proves the coupling is real.
+*
+* An RC whose drive comes from the DIGITAL side. `external` is ngspice's
+* keyword for a source whose value is supplied by the controlling program
+* through the GetVSRCData callback rather than by the deck.
+*
+* tau = 1k * 1n = 1 us. The digital side toggles every 5 us, so the
+* capacitor should charge to within e^-5 (0.7%) of the rail each half
+* period -- a number that can be checked rather than eyeballed, and one
+* that would be wrong if the two simulators were not actually in step.
+Vdrv in 0 dc 0 external
+R1 in out 1k
+C1 out 0 1n
+.end
