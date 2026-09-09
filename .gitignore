@@ -8,3 +8,5 @@ ams_bridge.so
 *.o
 *.vcd
 xezim_cov.json
+examples/pll/*.raw
+examples/pll/*.vcd

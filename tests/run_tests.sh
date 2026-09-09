@@ -96,6 +96,13 @@ case "$pout" in *stalled*)  check "no analog stall" 0 ;;
 case "$pout" in *aborted*)  check "no ngspice abort" 0 ;;
                 *)          check "no ngspice abort" 1 ;; esac
 
+# The waveforms, checked against numbers rather than looked at. The two
+# simulators counting the same VCO edges on their own time grids is real
+# evidence the coupling held; a drift would show here and nowhere else.
+echo
+echo "== waveforms =="
+if python3 tests/check_waves.py; then :; else fail=1; fi
+
 echo
 if [ "$fail" -ne 0 ]; then
   echo "VERDICT: FAIL"

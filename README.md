@@ -83,6 +83,40 @@ still look like a PLL. So the PLL testbench asserts that the VCO oscillates
 at all, that the control voltage has not run to a rail, and that the output
 settles at N x the reference.
 
+## Waveforms
+
+`./build.sh pll` leaves three files in `examples/pll/`:
+
+| file | what | read with |
+|---|---|---|
+| `pll_analog.raw` | ngspice's native rawfile — 6 vectors, ~145k timepoints | `ngspice -r`, gaw, numpy |
+| `pll_digital.vcd` | the RTL signals | GTKWave, Surfer |
+| `pll_combined.vcd` | **both, on one timeline** | GTKWave, Surfer |
+
+No viewer reads an ngspice rawfile and a VCD together, so `tools/raw2vcd.py`
+converts and interleaves them. **Nothing is resampled**: a VCD timestamp is
+an arbitrary integer rather than a grid, so each of ngspice's own timepoints
+becomes one, carrying the node voltage as a `real`. The solver chooses those
+timepoints by its own error control — they are neither uniform nor the
+coupling ticks — and forcing them onto the digital grid is the step that
+would turn a real waveform into a plausible-looking one. Output timescale is
+1 fs so no analog point has to round onto another.
+
+```sh
+tools/raw2vcd.py examples/pll/pll_analog.raw \
+    --merge examples/pll/pll_digital.vcd -o combined.vcd
+gtkwave combined.vcd
+```
+
+The merge is checked rather than admired. `tests/check_waves.py` requires
+the two simulators to report the **same VCO edge count** from their own
+files — 1159 threshold crossings in the rawfile against 1160 rising edges in
+the VCD, one apart because the run ends mid-cycle. They are produced by
+different simulators on different time grids, so agreement is real evidence
+the coupling held; a drift would show there and nowhere else. It also
+requires the merge to reproduce both counts exactly, and no analog signal to
+share a VCD identifier with a digital one.
+
 ## Writing your own
 
 The analog side declares whatever the digital drives as an `external`
@@ -186,4 +220,6 @@ find out whether one of them is right.
 | `src/ams_bridge.c` | the DPI library |
 | `examples/rc/` | smallest circuit that proves lockstep. tau = 1 us, drive toggled every 5 tau, so the capacitor must reach within 0.67% of the rail — checkable, not impressionistic |
 | `examples/pll/` | the loop: analog partition, plus an ordinary RTL detector and divider |
+| `tools/raw2vcd.py` | ngspice rawfile to VCD, and merges with the digital dump. Nothing is resampled |
 | `tests/run_tests.sh` | both examples as a gate; skips when the toolchain is absent |
+| `tests/check_waves.py` | the waveform files, checked against numbers rather than looked at |

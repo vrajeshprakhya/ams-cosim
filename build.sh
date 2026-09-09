@@ -49,11 +49,17 @@ echo "   ok"
 # LD_LIBRARY_PATH matters at RUN time as well as link time: xezim dlopens
 # the bridge, and a libngspice it cannot find surfaces as "cannot open
 # shared object", which reads like a fault in the bridge itself.
+#
+# --wave is required for $dumpfile/$dumpvars to do anything: xezim compiles
+# waveform support out by default, because an active dump forces loops onto
+# a slower path. Without it a testbench that calls $dumpvars runs happily
+# and writes no file.
 run() {
   local dir=$1 maxt=$2
   shift 2
   ( cd "$dir" && LD_LIBRARY_PATH="$NGLIB:$LD_LIBRARY_PATH" \
-      "$XEZIM" --max-time "$maxt" --dpi-lib "$HERE/ams_bridge.so" "$@" 2>&1 \
+      "$XEZIM" --max-time "$maxt" --wave \
+               --dpi-lib "$HERE/ams_bridge.so" "$@" 2>&1 \
       | grep -vE '^\[(PROF|FUSE|COV|EVENT|PHASE)' )
 }
 
@@ -61,7 +67,15 @@ case "${1:-}" in
   rc)  echo "== RC lockstep check =="
        run examples/rc 50ms tb_rc.sv ;;
   pll) echo "== PLL golden =="
-       run examples/pll 5ms pfd.sv divn.sv tb_pll.sv ;;
+       run examples/pll 5ms pfd.sv divn.sv tb_pll.sv
+       # One file a viewer can open, with both domains on one timeline.
+       # Nothing is resampled: a VCD timestamp is an arbitrary integer, so
+       # each of ngspice's own timepoints becomes one.
+       if [ -f examples/pll/pll_analog.raw ]; then
+         python3 tools/raw2vcd.py examples/pll/pll_analog.raw \
+                 --merge examples/pll/pll_digital.vcd \
+                 -o examples/pll/pll_combined.vcd
+       fi ;;
   "")  ;;
   *)   echo "unknown target: $1" >&2; exit 2 ;;
 esac

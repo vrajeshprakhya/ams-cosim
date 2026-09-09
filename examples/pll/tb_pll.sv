@@ -41,6 +41,8 @@ module tb;
   import "DPI-C" function int  ams_advance(input real t);
   import "DPI-C" function real ams_get(input string node);
   import "DPI-C" function real ams_time();
+  import "DPI-C" function int  ams_write_raw(input string path,
+                                             input string vectors);
   import "DPI-C" function void ams_close();
 
   // A BARE delay is one timescale unit -- verified on this simulator, and
@@ -79,6 +81,20 @@ module tb;
   // below its own rate and the reference ran at 50 kHz instead of 10 MHz,
   // while every printed number still looked like a plausible PLL.
   always #(STEP / 2) samp = ~samp;
+
+  // Waveforms, one file per simulator, each in its own native format.
+  //
+  // They are NOT merged into one file, and that is deliberate: ngspice's
+  // timepoints are chosen by its own error control and are neither uniform
+  // nor the coupling ticks, so putting the analog into the VCD would mean
+  // resampling it onto the digital grid. That is the step that turns a real
+  // waveform into a plausible-looking one. Two files, two timebases, both
+  // exact -- and the same wall-clock seconds on each axis, so any viewer
+  // that opens both will line them up.
+  initial begin
+    $dumpfile("pll_digital.vcd");
+    $dumpvars(0, tb);
+  end
 
   initial begin
     if (ams_open("pll_analog.cir") != 0)          begin $display("AMS-FAIL open");  $finish; end
@@ -176,6 +192,14 @@ module tb;
       else
         $display("PLL-OK locked within %0.2f%% of %0.2f MHz at %0.4f V",
                  100.0 * (f_meas - f_targ) / f_targ, f_targ, v_ctrl);
+
+      // Before ams_close: the plot belongs to the run, and halting the
+      // background thread is what ends it.
+      if (ams_write_raw("pll_analog.raw",
+                        "v(aout) v(vout) v(dra) v(pupb) v(pdn)") != 0)
+        $display("PLL-NOTE could not write pll_analog.raw");
+      else
+        $display("PLL-WAVE analog -> pll_analog.raw, digital -> pll_digital.vcd");
 
       ams_close();
       $finish;

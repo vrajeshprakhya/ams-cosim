@@ -360,6 +360,71 @@ double ams_get(const char *node)
     return v;
 }
 
+/* Write the analog side's waveform to an ngspice rawfile.
+ *
+ * `vectors` is a space-separated list ("v(aout) v(vout)"), or empty for
+ * everything ngspice kept. This ENDS the analog run: ngspice refuses to
+ * write while the background thread is going --
+ *
+ *     cannot execute "write ...", type "bg_halt" first
+ *
+ * -- so this halts first. Call it at the end of the digital run, not
+ * partway through.
+ *
+ * A rawfile rather than a VCD because that is ngspice's native format and
+ * it is lossless: it carries the solver's OWN timepoints, which are neither
+ * uniform nor the coupling ticks. Converting to VCD here would mean
+ * resampling an analog waveform onto the digital grid, which is the step
+ * that turns a real waveform into a plausible-looking one. Read it with
+ * ngspice itself, gaw, or numpy.
+ */
+int ams_write_raw(const char *path, const char *vectors)
+{
+    char cmd[1024];
+    struct timespec ts;
+    FILE *f;
+
+    if (!G.open) {
+        fprintf(stderr, "[ams_bridge] ams_write_raw before ams_open\n");
+        return -1;
+    }
+
+    /* Halt, and wait for the thread to actually stop -- issuing `write`
+     * immediately after `bg_halt` races the background thread. */
+    lock();
+    G.allow_until = 1e30;          /* release anyone blocked in the sync cb */
+    pthread_cond_broadcast(&G.cv);
+    unlock();
+    ngSpice_Command("bg_halt");
+    lock();
+    while (G.running && !G.finished) {
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 5;
+        if (pthread_cond_timedwait(&G.cv, &G.mtx, &ts) == ETIMEDOUT)
+            break;
+    }
+    unlock();
+
+    if (vectors && *vectors)
+        snprintf(cmd, sizeof cmd, "write %s %s", path, vectors);
+    else
+        snprintf(cmd, sizeof cmd, "write %s", path);
+    if (G.verbose)
+        fprintf(stderr, "[ams_bridge] %s\n", cmd);
+    ngSpice_Command(cmd);
+
+    /* ngSpice_Command returns 0 even for a command it refused -- the first
+     * version of this trusted that return and reported a file it had not
+     * written. Check the file instead. */
+    f = fopen(path, "rb");
+    if (f == NULL) {
+        fprintf(stderr, "[ams_bridge] ngspice wrote no %s\n", path);
+        return -1;
+    }
+    fclose(f);
+    return 0;
+}
+
 double ams_time(void)
 {
     double t;
