@@ -40,8 +40,20 @@ out=$(./build.sh rc 2>&1) || true
 echo "$out" | grep -E '^AMS' || true
 echo
 
+# A missing toolchain is a SKIP, not a failure -- but it must be visible as
+# one. These patterns track build.sh's own messages; if they drift, a broken
+# toolchain reports as a test failure instead, which is noisy but not silent.
+#
+# CI passes STRICT=1 so the skip becomes a failure there: a green tick that
+# only means "ngspice was not installed" is worse than no CI at all.
 case "$out" in
-  *"no libngspice.so"*|*"no executable xezim"*)
+  *"no shared libngspice found"*|*"no executable xezim"*)
+    if [ "${STRICT:-0}" = 1 ]; then
+      echo "FAIL: toolchain not present, and STRICT=1"
+      echo "$out" | sed 's/^/  /'
+      echo "VERDICT: FAIL"
+      exit 1
+    fi
     echo "SKIP: toolchain not present"
     echo "$out" | sed 's/^/  /'
     echo "VERDICT: SKIP"

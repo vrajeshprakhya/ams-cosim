@@ -1,0 +1,79 @@
+name: CI
+
+# The gate this repo already had, run by a machine instead of by whoever
+# remembers. tests/run_tests.sh is the whole contract: it exits non-zero on
+# failure and prints VERDICT on its last line.
+#
+# STRICT=1 is the load-bearing part. Without it a missing toolchain prints
+# VERDICT: SKIP and exits 0 -- correct for a laptop, useless for CI, where a
+# green tick that only means "ngspice was not installed" is worse than no CI
+# at all. STRICT=1 turns that skip into a failure.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      # xezim is PINNED rather than tracked. This repo's job is to test
+      # itself, not to be the first to notice an upstream regression: a
+      # floating ref would make the gate red for reasons that have nothing
+      # to do with a change here. Bump deliberately, and read the failure
+      # when you do.
+      XEZIM_REF: 90b730ca4f177b46be9986e2520538eedb171e55
+      XEZIM: ${{ github.workspace }}/xezim/target/release/xezim
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The packaged shared library, not an ngspice build. The examples are
+      # pure analog -- no XSPICE code models -- so the stock package is
+      # enough, and build.sh finds it through the loader.
+      - name: Install libngspice
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libngspice0-dev
+          ldconfig -p | grep libngspice
+
+      - uses: actions/checkout@v4
+        with:
+          repository: aionhw/xezim
+          ref: ${{ env.XEZIM_REF }}
+          path: xezim
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Keyed on the pinned ref, so the ~5 minute build happens once per
+      # bump rather than once per run.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: xezim
+          key: ${{ env.XEZIM_REF }}
+
+      - name: Build xezim
+        run: cargo build --release --manifest-path xezim/Cargo.toml
+
+      - name: Run the gate
+        env:
+          STRICT: 1
+        run: ./tests/run_tests.sh
+
+      # Waveforms are the artifact a human would actually look at when the
+      # gate fails, and they are the one thing a log cannot show.
+      - name: Upload waveforms
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: waveforms
+          path: |
+            examples/pll/*.vcd
+            examples/pll/*.raw
+            examples/rc/*.vcd
+          if-no-files-found: ignore
+          retention-days: 7

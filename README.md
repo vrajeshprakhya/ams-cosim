@@ -116,10 +116,21 @@ above are the 20 us run.)
 
 ## Requirements
 
-- an **ngspice source tree configured `--with-ngshared`**. The ordinary CLI
-  binary will not do — this links `libngspice.so`. Configure a SECOND copy
-  of the source: ngspice refuses to configure a tree that is already
-  configured, and reusing the one that built the CLI destroys it.
+- **a shared `libngspice`.** The ordinary CLI binary will not do — this
+  links `libngspice.so`. Either shape works and `build.sh` finds both:
+
+  ```sh
+  sudo apt-get install libngspice0-dev     # the easy one
+  ```
+
+  The examples are pure analog — no XSPICE code models — so a stock package
+  is enough. Tested against Debian/Ubuntu's 45.2 as well as a 46 source
+  tree.
+
+  Or build one, if you want a specific version or XSPICE for your own decks.
+  Configure a SECOND copy of the source: ngspice refuses to configure a tree
+  that is already configured, and reusing the one that built the CLI
+  destroys it.
 
   ```sh
   cp -a ngspice-46 ngspice-46-shared && cd ngspice-46-shared
@@ -128,13 +139,18 @@ above are the 20 us run.)
   make -j$(nproc)
   ```
 
+  Search order is `NGSPICE_LIB`+`NGSPICE_INC` (an explicit pair, for an
+  unusual layout), then `NGSPICE_SRC` as a source tree, then whatever the
+  loader knows about.
+
 - **xezim**, built. `XEZIM` names the BINARY, not the checkout directory.
 
 ## Use
 
 ```sh
-export NGSPICE_SRC=~/ngspice-46-shared
 export XEZIM=~/xezim/target/release/xezim
+# and, only if libngspice is not already on the loader's path:
+export NGSPICE_SRC=~/ngspice-46-shared
 
 ./build.sh              # just build ams_bridge.so
 ./build.sh rc           # the lockstep check      (~1 s)
@@ -143,6 +159,11 @@ export XEZIM=~/xezim/target/release/xezim
 ./tests/run_tests.sh    # both, with a verdict    (~17 s)
 ./tests/run_tests.sh rc # plumbing only           (~1 s)
 ```
+
+With no toolchain present the gate prints `VERDICT: SKIP` and exits 0, which
+is right on a laptop and wrong in CI — a green tick that only means "ngspice
+was not installed" is worse than no CI at all. `STRICT=1` turns that skip
+into a failure, and [the workflow](.github/workflows/ci.yml) sets it.
 
 Both examples are gated, and they check different things. The RC checks the
 PLUMBING — that the two simulators are actually in step. The PLL checks the

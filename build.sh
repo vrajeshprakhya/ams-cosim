@@ -7,29 +7,86 @@
 #
 # Paths come from the environment, so this is not tied to one machine:
 #
-#   NGSPICE_SRC   an ngspice source tree configured --with-ngshared
 #   XEZIM         the xezim BINARY (not the checkout directory)
 #
-# NGSPICE_SRC must be a SHARED build. The ordinary ngspice binary will not
-# do: this links libngspice.so, which exists only if the tree was
-# configured --with-ngshared. Configure a SECOND copy of the source --
-# ngspice refuses to configure a tree that is already configured, and
-# reusing the one that built the CLI destroys it.
+# and libngspice is found in one of two shapes, in this order:
+#
+#   NGSPICE_LIB + NGSPICE_INC   an explicit pair, checked first
+#   NGSPICE_SRC                 an ngspice SOURCE tree configured
+#                               --with-ngshared (libngspice.so in
+#                               src/.libs, headers in src/include)
+#   otherwise                   a packaged install, e.g. Debian's
+#                               libngspice0-dev: the loader's own path
+#                               plus /usr/include/ngspice
+#
+# Whichever shape, it must be the SHARED library. The ordinary ngspice
+# binary will not do: this links libngspice.so, which a source tree only
+# produces if it was configured --with-ngshared. If you build from source,
+# configure a SECOND copy -- ngspice refuses to configure a tree that is
+# already configured, and reusing the one that built the CLI destroys it.
+#
+# The packaged path exists so CI (and anyone who just wants to run this)
+# needs `apt-get install libngspice0-dev` rather than an ngspice build. The
+# examples are pure analog -- no XSPICE code models -- so a stock package
+# is enough.
 set -e
 
-NGSPICE_SRC=${NGSPICE_SRC:-$HOME/ngspice-46-shared}
 XEZIM=${XEZIM:-$HOME/xezim/target/release/xezim}
-NGLIB="$NGSPICE_SRC/src/.libs"
 HERE=$(cd "$(dirname "$0")" && pwd)
 cd "$HERE"
 
-if [ ! -f "$NGLIB/libngspice.so" ]; then
-  echo "no libngspice.so under $NGLIB" >&2
-  echo "build one with:" >&2
-  echo "  cp -a ngspice-46 ngspice-46-shared && cd ngspice-46-shared" >&2
-  echo "  make distclean" >&2
-  echo "  ./configure --with-ngshared --enable-xspice --disable-debug" >&2
-  echo "  make -j\$(nproc)" >&2
+find_ngspice() {
+  # 1. an explicit pair wins, so an unusual layout is always expressible.
+  #    VALIDATED, not just accepted: taking it on trust turned a wrong path
+  #    into a gcc "cannot find -lngspice" further down, which reads like a
+  #    fault in the bridge rather than a mistyped variable -- and, because
+  #    it changed the error text, stopped run_tests.sh recognising a missing
+  #    toolchain as a skip.
+  if [ -n "${NGSPICE_LIB:-}" ] && [ -n "${NGSPICE_INC:-}" ]; then
+    if ls "$NGSPICE_LIB"/libngspice.so* >/dev/null 2>&1 \
+       && [ -f "$NGSPICE_INC/sharedspice.h" ]; then
+      NGLIB=$NGSPICE_LIB; NGINC="-I$NGSPICE_INC"; NGWHERE="NGSPICE_LIB/NGSPICE_INC"
+      return 0
+    fi
+    BAD_EXPLICIT="  NGSPICE_LIB=$NGSPICE_LIB (needs libngspice.so*)
+  NGSPICE_INC=$NGSPICE_INC (needs sharedspice.h)"
+  fi
+  # 2. a source tree, the historical default
+  local src=${NGSPICE_SRC:-$HOME/ngspice-46-shared}
+  if [ -f "$src/src/.libs/libngspice.so" ]; then
+    NGLIB="$src/src/.libs"
+    NGINC="-I$src/src/include/ngspice -I$src/src/include"
+    NGWHERE="source tree $src"
+    return 0
+  fi
+  # 3. a packaged install: ask the loader where the library is, rather than
+  #    guessing a multiarch triplet
+  local so
+  so=$(ldconfig -p 2>/dev/null | awk '/libngspice\.so/ {print $NF; exit}')
+  if [ -n "$so" ] && [ -f "$so" ]; then
+    for inc in /usr/include/ngspice /usr/local/include/ngspice; do
+      if [ -f "$inc/sharedspice.h" ]; then
+        NGLIB=$(dirname "$so"); NGINC="-I$inc"; NGWHERE="package $so"
+        return 0
+      fi
+    done
+  fi
+  return 1
+}
+
+BAD_EXPLICIT=""
+if ! find_ngspice; then
+  echo "no shared libngspice found" >&2
+  echo "  tried: NGSPICE_LIB+NGSPICE_INC, then a source tree, then the loader" >&2
+  # An explicit `cmd && echo` here would abort the rest of this help text
+  # under `set -e` whenever the test is false.
+  if [ -n "$BAD_EXPLICIT" ]; then echo "$BAD_EXPLICIT" >&2; fi
+  echo "  easiest fix:  sudo apt-get install libngspice0-dev" >&2
+  echo "  from source:" >&2
+  echo "    cp -a ngspice-46 ngspice-46-shared && cd ngspice-46-shared" >&2
+  echo "    make distclean" >&2
+  echo "    ./configure --with-ngshared --enable-xspice --disable-debug" >&2
+  echo "    make -j\$(nproc)" >&2
   exit 1
 fi
 if [ ! -x "$XEZIM" ]; then
@@ -39,9 +96,10 @@ if [ ! -x "$XEZIM" ]; then
 fi
 
 echo "== ams_bridge.so =="
+echo "   libngspice: $NGWHERE"
+# shellcheck disable=SC2086  # NGINC is deliberately several -I words
 gcc -shared -fPIC -O2 -Wall \
-    -I"$NGSPICE_SRC/src/include/ngspice" \
-    -I"$NGSPICE_SRC/src/include" \
+    $NGINC \
     src/ams_bridge.c -o ams_bridge.so \
     -L"$NGLIB" -lngspice -lpthread
 echo "   ok"
