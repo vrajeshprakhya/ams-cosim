@@ -35,6 +35,48 @@ fail=0
 note() { printf '%-52s %s\n' "$1" "$2"; }
 check() { if [ "$2" = 1 ]; then note "$1" ok; else note "$1" FAIL; fail=1; fi; }
 
+# PREFLIGHT: does this xezim scale time literals in constants correctly?
+#
+# examples/pll/pfd.sv writes its reset delay as `300ps`, which is what IEEE
+# 1800-2017 5.8 means. On a xezim without aionhw/xezim-core#42 that folds to
+# 0.3 and rounds to ZERO at the module's 1 ps precision, and the PFD gets a
+# zero-width reset.
+#
+# The reason this is checked rather than left to the examples: the failure is
+# SILENT and green. The bridge builds, the loop locks, the frequency is
+# right, every physics check below passes -- nothing here asserts a PFD reset
+# width, and the only trace is a few ps of extra coupling lag that looks like
+# noise. A wrong answer that passes its own tests is the worst thing this
+# repo can produce, so it is worth four lines of SystemVerilog to refuse.
+preflight_time_literals() {
+  local xz=${XEZIM:-$HOME/xezim/target/release/xezim}
+  [ -x "$xz" ] || return 0          # no xezim: the toolchain SKIP below handles it
+  local tmp; tmp=$(mktemp -d)
+  cat > "$tmp/t.sv" <<'EOF'
+`timescale 1ps/1ps
+module t;
+  localparam realtime D = 300ps;
+  initial if (D == 300.0) $display("TIMELIT-OK"); else $display("TIMELIT-BAD %0.6f", D);
+endmodule
+EOF
+  local o; o=$("$xz" --no-cache "$tmp/t.sv" 2>&1) || true
+  rm -rf "$tmp"
+  case "$o" in
+    *TIMELIT-OK*) return 0 ;;
+    *)
+      echo "PREFLIGHT FAIL: this xezim mis-scales time literals in constants."
+      echo "  300ps in a localparam should be 300.0 at a 1 ps timeunit; this build gives:"
+      echo "$o" | grep -o 'TIMELIT-BAD.*' | sed 's/^/    /'
+      echo "  examples/pll/pfd.sv would get a ZERO-width reset, silently, and"
+      echo "  every check below would still pass."
+      echo "  Fix: build xezim against aionhw/xezim-core#42 (see .github/workflows/ci.yml),"
+      echo "  or pin pfd.sv's RST_DELAY back to a bare 300."
+      echo "VERDICT: FAIL"
+      exit 1 ;;
+  esac
+}
+preflight_time_literals
+
 out=$(./build.sh rc 2>&1) || true
 
 echo "$out" | grep -E '^AMS' || true

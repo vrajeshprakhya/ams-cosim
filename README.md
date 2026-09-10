@@ -145,6 +145,14 @@ above are the 20 us run.)
 
 - **xezim**, built. `XEZIM` names the BINARY, not the checkout directory.
 
+  It must include [xezim-core#42](https://github.com/aionhw/xezim-core/pull/42),
+  which is open at the time of writing — `examples/pll/pfd.sv` writes its
+  reset delay as `300ps`, and without that fix the constant folds to `0.3`
+  and rounds to zero, giving the PFD a silent zero-width reset. `run_tests.sh`
+  refuses to run against a xezim that gets this wrong rather than passing
+  with a subtly broken loop; the message tells you both ways out. The
+  workflow builds against that PR until it merges.
+
 ## Use
 
 ```sh
@@ -358,10 +366,16 @@ completely.
 That is what bit here. A tick constant is a `localparam`; believing the
 suffix asked the analog to advance to 3.5e-11 s — it never moved, every
 reading came back `0.000000`, and the digital clock looked frozen at zero
-while running perfectly normally. Every delay in these examples is a BARE
-number in timescale units, which sidesteps the bug rather than depending on
-which side of it an expression falls. Filed as
-[aionhw/xezim#161](https://github.com/aionhw/xezim/issues/161).
+while running perfectly normally. Filed as
+[aionhw/xezim#161](https://github.com/aionhw/xezim/issues/161), fixed in
+[xezim-core#42](https://github.com/aionhw/xezim-core/pull/42).
+
+Every *tick* constant in these testbenches is still a BARE number in
+timescale units, which sidesteps the bug rather than depending on which side
+of it an expression falls. `examples/pll/pfd.sv` is the exception: its reset
+delay is written `300ps`, because that is what the file should say and a
+30-line PFD is not the place to explain a simulator bug. That one line is
+why the gate checks for the fix before it runs — see below.
 
 ## What this is not for
 
