@@ -40,10 +40,25 @@
  */
 #include <errno.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+/* stdbool.h above is REQUIRED, and must precede this include.
+ *
+ * sharedspice.h has `typedef bool NG_BOOL;` and does not include stdbool.h
+ * itself, so before C23 -- where `bool` became a keyword -- every caller has
+ * to provide it. Omitting it is invisible on a new toolchain and fatal on an
+ * older one: gcc 15 defaults to gnu23 and compiles this fine, while gcc 13
+ * defaults to gnu17 and stops at
+ *
+ *     sharedspice.h:158:9: error: unknown type name 'bool'
+ *
+ * which reads like a broken ngspice header rather than a missing include
+ * here. Found when CI on ubuntu-latest failed against a local build that
+ * had never had a reason to complain.
+ */
 #include "sharedspice.h"
 
 #ifndef AMS_MAX_NODES
