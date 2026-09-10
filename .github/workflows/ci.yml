@@ -14,9 +14,17 @@ on:
     branches: [master]
   pull_request:
   workflow_dispatch:
+  # For the drift job below only. A pin nobody is told to bump is a pin that
+  # rots, and the longer it sits the larger the jump when someone finally
+  # moves it.
+  schedule:
+    - cron: '17 6 * * 1'
 
 jobs:
   gate:
+    # The authoritative check: a fixed xezim, so a red gate always means a
+    # change HERE. Never runs on the schedule.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -25,12 +33,12 @@ jobs:
       # itself, not to be the first to notice an upstream regression: a
       # floating ref would make the gate red for reasons that have nothing
       # to do with a change here. Bump deliberately, and read the failure
-      # when you do.
+      # when you do -- the drift job below is what tells you it is time.
       XEZIM_REF: 90b730ca4f177b46be9986e2520538eedb171e55
       XEZIM: ${{ github.workspace }}/xezim/target/release/xezim
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The packaged shared library, not an ngspice build. The examples are
       # pure analog -- no XSPICE code models -- so the stock package is
@@ -47,7 +55,7 @@ jobs:
           dpkg-query -W -f='libngspice0-dev ${Version}\n' libngspice0-dev
           ls -l /usr/include/ngspice/sharedspice.h
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: aionhw/xezim
           ref: ${{ env.XEZIM_REF }}
@@ -81,7 +89,7 @@ jobs:
       # gate fails, and they are the one thing a log cannot show.
       - name: Upload waveforms
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: waveforms
           path: |
@@ -90,3 +98,53 @@ jobs:
             examples/rc/*.vcd
           if-no-files-found: ignore
           retention-days: 7
+
+  # Same gate, against xezim's CURRENT main instead of the pin. Weekly, and
+  # never on a push or a PR, so it can tell you the pin has gone stale
+  # without ever being the reason your change is red. If this goes amber and
+  # the gate above is green, the pin is what needs attention -- read this
+  # job's log, then bump XEZIM_REF deliberately.
+  #
+  # continue-on-error, not a hard failure: upstream breaking is information,
+  # not a defect in this repo, and a scheduled job that cries wolf gets
+  # muted, which loses the signal entirely.
+  drift:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: true
+
+    env:
+      XEZIM: ${{ github.workspace }}/xezim/target/release/xezim
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install libngspice
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libngspice0-dev
+
+      - uses: actions/checkout@v7
+        with:
+          repository: aionhw/xezim
+          path: xezim          # no ref: whatever main is today
+
+      - name: Report what is being tested
+        run: |
+          echo "pinned in the gate: 90b730ca4f177b46be9986e2520538eedb171e55"
+          echo "xezim main today:   $(git -C xezim rev-parse HEAD)"
+          git -C xezim log --oneline -5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build xezim from main
+        run: cargo build --release --manifest-path xezim/Cargo.toml
+
+      - name: Build the bridge
+        run: ./build.sh
+
+      - name: Run the gate against upstream main
+        env:
+          STRICT: 1
+        run: ./tests/run_tests.sh
