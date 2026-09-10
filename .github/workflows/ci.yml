@@ -36,6 +36,8 @@ jobs:
       # when you do -- the drift job below is what tells you it is time.
       XEZIM_REF: 90b730ca4f177b46be9986e2520538eedb171e55
       XEZIM: ${{ github.workspace }}/xezim/target/release/xezim
+      # TEMPORARY, and self-removing: see "Patch xezim-core" below.
+      XEZIM_CORE_PR_REV: 702dd7a59566da555e9b1350dca39a9900df8aca
 
     steps:
       - uses: actions/checkout@v7
@@ -63,15 +65,61 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      # Keyed on the pinned ref, so the ~5 minute build happens once per
-      # bump rather than once per run.
+      # TEMPORARY. examples/pll/pfd.sv writes its reset delay as `300ps`,
+      # which is what the LRM says and what the file should say -- but it
+      # needs aionhw/xezim-core#42, still open at time of writing. Without
+      # that fix a time literal in a constant is folded against a fixed 1 ns
+      # instead of the module's unit, so `300ps` becomes 0.3 and rounds to
+      # ZERO at 1 ps precision: the reset delay vanishes silently and the PFD
+      # gets a zero-width reset that no assertion here would catch.
+      #
+      # So CI builds xezim against that PR's head rather than the pinned
+      # core. Pinned to a REV, not a branch, for the same reason XEZIM_REF is
+      # -- and rebased onto the exact core rev xezim expects, so this
+      # substitutes the fix and nothing else.
+      #
+      # WHEN #42 MERGES: delete this step and XEZIM_CORE_PR_REV, and drop it
+      # from the cache key. Nothing else changes; pfd.sv already reads the
+      # way it should.
+      - name: Patch xezim-core to the open fix (temporary)
+        run: |
+          mkdir -p xezim/.cargo
+          cat > xezim/.cargo/config.toml <<EOF
+          [patch."https://github.com/aionhw/xezim-core.git"]
+          xezim-core = { git = "https://github.com/vrajeshprakhya/xezim-core.git", rev = "${XEZIM_CORE_PR_REV}" }
+          sv-parser  = { git = "https://github.com/vrajeshprakhya/xezim-core.git", rev = "${XEZIM_CORE_PR_REV}" }
+          EOF
+          cat xezim/.cargo/config.toml
+
+      # Keyed on the pinned ref AND the patched core, so a bump to either
+      # rebuilds rather than silently reusing a binary built from the other.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: xezim
-          key: ${{ env.XEZIM_REF }}
+          key: ${{ env.XEZIM_REF }}-${{ env.XEZIM_CORE_PR_REV }}
 
       - name: Build xezim
         run: cargo build --release --manifest-path xezim/Cargo.toml
+
+      # The reason this workflow is more complicated than it looks. If the
+      # patch silently failed to apply, everything below still runs and the
+      # PLL still locks -- only the reset delay is gone. Assert the fix is
+      # actually in the binary, in the one place a human will look.
+      - name: Verify the time-literal fix is present
+        run: |
+          cat > /tmp/timelit.sv <<'EOF'
+          `timescale 1ps/1ps
+          module timelit;
+            localparam realtime D = 300ps;
+            initial begin
+              if (D == 300.0) $display("TIMELIT-OK %0.1f", D);
+              else             $display("TIMELIT-BAD %0.6f (want 300.0)", D);
+            end
+          endmodule
+          EOF
+          out=$("$XEZIM" --no-cache /tmp/timelit.sv 2>&1) || true
+          echo "$out" | grep -E 'TIMELIT-(OK|BAD)' || { echo "$out"; exit 1; }
+          echo "$out" | grep -q TIMELIT-OK
 
       # Its own step on purpose. Folded into the gate, a compile or link
       # failure surfaces as "zero samples" with the reason swallowed by the
@@ -116,6 +164,7 @@ jobs:
 
     env:
       XEZIM: ${{ github.workspace }}/xezim/target/release/xezim
+      XEZIM_CORE_PR_REV: 702dd7a59566da555e9b1350dca39a9900df8aca
 
     steps:
       - uses: actions/checkout@v7
@@ -129,6 +178,18 @@ jobs:
         with:
           repository: aionhw/xezim
           path: xezim          # no ref: whatever main is today
+
+      # Same temporary patch as the gate. Without it this job would sit
+      # permanently amber for a reason that has nothing to do with drift,
+      # which is how a scheduled job stops being read.
+      - name: Patch xezim-core to the open fix (temporary)
+        run: |
+          mkdir -p xezim/.cargo
+          cat > xezim/.cargo/config.toml <<EOF
+          [patch."https://github.com/aionhw/xezim-core.git"]
+          xezim-core = { git = "https://github.com/vrajeshprakhya/xezim-core.git", rev = "${XEZIM_CORE_PR_REV}" }
+          sv-parser  = { git = "https://github.com/vrajeshprakhya/xezim-core.git", rev = "${XEZIM_CORE_PR_REV}" }
+          EOF
 
       - name: Report what is being tested
         run: |

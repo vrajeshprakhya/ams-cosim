@@ -12,25 +12,27 @@ module pfd (
   output logic up,
   output logic dn
 );
-  // A reset path delay, as a real one has: 300 ps, in the 1 ps units
-  // declared above.
+  // A reset path delay, as a real one has. Written with its unit, which is
+  // what this file should say and what the LRM means: 5.8 scales a time
+  // literal to the module's own time unit, so this is 300 ps whatever the
+  // timescale above happens to be.
   //
-  // Written as a BARE number rather than `300ps` for the same reason every
-  // delay in the testbenches is, and this file is where it actually bit.
-  // Under aionhw/xezim#161 a time literal in a constant is folded against a
-  // fixed 1 ns instead of the module's unit, so `300ps` becomes 0.3 -- which
-  // at 1 ps precision rounds to ZERO. The reset delay does not shrink, it
-  // disappears, and the PFD silently gets a zero-width reset.
+  // It has not always been safe to write it this way here, and the history
+  // is worth keeping because it is the reason the CI pins what it pins.
+  // Under aionhw/xezim#161 a time literal in a CONSTANT was folded against a
+  // fixed 1 ns rather than the module's unit, so `300ps` became 0.3 -- which
+  // at 1 ps precision rounds to ZERO. The delay did not shrink, it
+  // disappeared, and the PFD silently got a zero-width reset. The file
+  // carried a bare `300` until the fix existed.
   //
-  // This file used to declare no timescale, which took the 1 ns default: the
-  // single unit at which that bug is a no-op, since 0.3 ns is what 300ps
-  // should have been anyway. It was correct by accident, and adding a
+  // Earlier still it declared no timescale at all, taking the 1 ns default:
+  // the single unit at which that bug is a no-op, since 0.3 ns is what
+  // 300ps should have been anyway. It was correct by accident, and adding a
   // timescale -- an ordinary tidying edit -- would have broken it.
   //
-  // A bare number in a declared unit is right on both sides of the fix, and
-  // does not depend on file order. That is the portable way to write it
-  // until the fix is released.
-  localparam time RST_DELAY = 300;
+  // Requires the fix in aionhw/xezim-core#42, which the workflow builds
+  // explicitly until it merges. See .github/workflows/ci.yml.
+  localparam time RST_DELAY = 300ps;
 
   logic rst;
   assign #(RST_DELAY) rst = up & dn;
