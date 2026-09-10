@@ -98,8 +98,14 @@ jobs:
           workspaces: xezim
           key: ${{ env.XEZIM_REF }}-${{ env.XEZIM_CORE_PR_REV }}
 
+      # working-directory, NOT --manifest-path. Cargo discovers
+      # .cargo/config.toml by walking up from its CURRENT DIRECTORY, so
+      # building from the repo root ignored the patch written above and
+      # produced an unpatched binary while every step still reported
+      # success. The verify step below is what caught it.
       - name: Build xezim
-        run: cargo build --release --manifest-path xezim/Cargo.toml
+        working-directory: xezim
+        run: cargo build --release
 
       # The reason this workflow is more complicated than it looks. If the
       # patch silently failed to apply, everything below still runs and the
@@ -199,8 +205,31 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # working-directory for the same reason as the gate: cargo finds the
+      # patch config by CWD, not by manifest path.
       - name: Build xezim from main
-        run: cargo build --release --manifest-path xezim/Cargo.toml
+        working-directory: xezim
+        run: cargo build --release
+
+      # Same self-check as the gate, and for the same reason: a patch that
+      # failed to apply leaves a green run with the reset delay silently
+      # zero. Here it also distinguishes the two ways this job can go amber
+      # -- upstream drifted, or the fix stopped applying to it.
+      - name: Verify the time-literal fix is present
+        run: |
+          cat > /tmp/timelit.sv <<'EOF'
+          `timescale 1ps/1ps
+          module timelit;
+            localparam realtime D = 300ps;
+            initial begin
+              if (D == 300.0) $display("TIMELIT-OK %0.1f", D);
+              else             $display("TIMELIT-BAD %0.6f (want 300.0)", D);
+            end
+          endmodule
+          EOF
+          out=$("$XEZIM" --no-cache /tmp/timelit.sv 2>&1) || true
+          echo "$out" | grep -E 'TIMELIT-(OK|BAD)' || { echo "$out"; exit 1; }
+          echo "$out" | grep -q TIMELIT-OK
 
       - name: Build the bridge
         run: ./build.sh
