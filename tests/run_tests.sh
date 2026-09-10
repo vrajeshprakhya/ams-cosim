@@ -124,6 +124,19 @@ if python3 tests/check_coupling_jitter.py; then :; else fail=1; fi
 
 echo
 if [ "$fail" -ne 0 ]; then
+  # Show what the examples actually printed. Everything above is a grep of
+  # this text, so on a green run it is noise -- but on a red one it is the
+  # only evidence there is, and discarding it makes a CI failure unreadable
+  # by whoever has to fix it. That is not hypothetical: the first CI run
+  # reported five FAILs and zero samples with no indication of why, because
+  # this output was captured and dropped.
+  echo "=== captured output: build.sh rc ==="
+  printf '%s\n' "$out" | sed 's/^/  /'
+  if [ -n "${pout:-}" ]; then
+    echo "=== captured output: build.sh pll ==="
+    printf '%s\n' "$pout" | sed 's/^/  /'
+  fi
+  echo
   echo "VERDICT: FAIL"
   exit 1
 fi

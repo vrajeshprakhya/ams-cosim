@@ -40,6 +40,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libngspice0-dev
           ldconfig -p | grep libngspice
+          # The runner's version is whatever its release ships, which is not
+          # the version this was developed against. Print it: an incompatible
+          # libngspice is the first thing to suspect when the gate fails here
+          # but passes locally.
+          dpkg-query -W -f='libngspice0-dev ${Version}\n' libngspice0-dev
+          ls -l /usr/include/ngspice/sharedspice.h
 
       - uses: actions/checkout@v4
         with:
@@ -58,6 +64,13 @@ jobs:
 
       - name: Build xezim
         run: cargo build --release --manifest-path xezim/Cargo.toml
+
+      # Its own step on purpose. Folded into the gate, a compile or link
+      # failure surfaces as "zero samples" with the reason swallowed by the
+      # harness's output capture -- which is exactly how the first run here
+      # failed, unreadably.
+      - name: Build the bridge
+        run: ./build.sh
 
       - name: Run the gate
         env:
