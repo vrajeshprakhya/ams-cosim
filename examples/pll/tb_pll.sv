@@ -14,10 +14,12 @@
 // what sets the coupling granularity, and the analog is granted exactly as
 // far as $realtime has reached. Every delay here is a bare number in
 // timescale units, which avoids a simulator bug in unit-suffixed literals:
-// on xezim 0.10.5 the timescale scaling required by IEEE 1800-2017 5.8 is
-// applied at run time but NOT at elaboration, so `localparam realtime T =
-// 100ns` under 1fs/1fs yields 100.0 where `#100ns` correctly yields 1e8.
-// A tick constant takes the broken path. See tb_rc.sv for the full table.
+// on xezim 0.10.5 a time literal in a CONSTANT is scaled to a fixed 1 ns
+// rather than to the declaring module's unit, against IEEE 1800-2017 5.8,
+// so `localparam realtime T = 100ns` gives a 100 ps delay here and a 100 fs
+// one under 1fs/1fs. Run-time forms like `#100ns` are correct. A tick
+// constant takes the broken path. See tb_rc.sv for the full table and
+// aionhw/xezim#161 for the report.
 //
 // POLARITY. Taken from what the pipeline MEASURED on this same netlist,
 // not from the port names:

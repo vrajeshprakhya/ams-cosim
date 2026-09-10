@@ -312,12 +312,35 @@ granted the window — and unlike the squeeze it cannot fail.
 meant to be 100 ps was 20 ns; the reference ran at 50 kHz and a 400 MHz
 ring read as a confident 124 MHz.
 
-**A unit-suffixed time literal is not scaled by `timescale` on xezim.**
-Measured: `100ns` under `` `timescale 1fs/1fs `` evaluates to `100.0`, not
-`100_000_000`. Every delay in these examples is a BARE number in timescale
-units. Believing the suffix asked the analog to advance to 3.5e-11 s — it
-never moved, every reading came back `0.000000`, and the digital clock
-looked frozen at zero while running perfectly normally.
+**A time literal in a constant is scaled to a fixed 1 ns on xezim, not to
+the module's `timescale`.** IEEE 1800-2017 §5.8 says a time literal is
+"scaled to the current time unit", with no exemption for constant
+expressions. On xezim 0.10.5 a literal in a `localparam`, `const`,
+parameter port or module-level variable initialiser is divided by 1 ns, and
+the result is then used as a count of the module's *own* unit. Run-time
+evaluation — procedural assignment, automatic variable init, `#100ns` —
+is correct. Same module body, three timescales, all intending 100 ns:
+
+| module time unit | folded | delay | |
+|---|---|---|---|
+| `1ns` (no directive — the default) | `100` | 100 ns | right |
+| `1ps` | `100` | 100 ps | 10³ short |
+| `1fs` | `100` | 100 fs | 10⁶ short |
+
+Two consequences worth internalising. The error is the ratio `1ns / unit`,
+so a module that declares **no** timescale is accidentally correct — which
+is why this hides. And sub-nanosecond delays do not shrink, they vanish:
+under `1ps/1ps`, `localparam realtime D = 300ps` folds to `0.3`, which
+rounds to zero at the module's precision, so the delay disappears
+completely.
+
+That is what bit here. A tick constant is a `localparam`; believing the
+suffix asked the analog to advance to 3.5e-11 s — it never moved, every
+reading came back `0.000000`, and the digital clock looked frozen at zero
+while running perfectly normally. Every delay in these examples is a BARE
+number in timescale units, which sidesteps the bug rather than depending on
+which side of it an expression falls. Filed as
+[aionhw/xezim#161](https://github.com/aionhw/xezim/issues/161).
 
 ## What this is not for
 

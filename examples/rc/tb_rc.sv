@@ -43,24 +43,33 @@ module tb;
   // Written as a BARE number, not `100ns`, because of a simulator bug that
   // lives exactly here. IEEE 1800-2017 5.8 says a time literal "is
   // interpreted as a realtime value scaled to the current time unit", with
-  // no exemption for constant expressions -- but on xezim 0.10.5 the
-  // scaling is applied only where the literal is evaluated at RUN time:
+  // no exemption for constant expressions -- but on xezim 0.10.5 a literal
+  // in a CONSTANT is scaled to a fixed 1 ns instead of to the declaring
+  // module's unit, and the folded number is then spent as a count of that
+  // module's own unit. Same body, three timescales, all meaning 100 ns:
   //
-  //   localparam / const / parameter port / module-level var initialiser
-  //                                     100ns -> 100.0        WRONG
-  //   procedural assignment, automatic-var init, #100ns, #(100ns)
-  //                                     100ns -> 100000000.0  right
+  //   unit 1ns (no directive)   folds 100 -> 100 ns        right
+  //   unit 1ps                  folds 100 -> 100 ps        1e3 short
+  //   unit 1fs                  folds 100 -> 100 fs        1e6 short
   //
-  // (measured under `timescale 1fs/1fs`, where 100 ns is 1e8 time units.)
-  // So the broken path is precisely the one a tick constant takes. Writing
-  // the suffix here asked the analog to advance to 3.5e-11 s: it never
-  // moved, every reading came back 0.000000, and the digital clock looked
-  // frozen at zero while in fact running normally. A units mistake in a
-  // coupling does not announce itself, it produces a flat waveform.
+  // Run-time evaluation is fine: procedural assignment, automatic-var init
+  // and #100ns all give the correct value. The broken path is precisely the
+  // one a tick constant takes.
+  //
+  // Two things make this nastier than a factor. The error is the ratio
+  // 1ns/unit, so a module declaring NO timescale is accidentally right --
+  // which is why it hides. And a sub-nanosecond delay does not shrink, it
+  // VANISHES: under 1ps/1ps a `localparam realtime D = 300ps` folds to 0.3
+  // and rounds to zero at the module's precision.
+  //
+  // Writing the suffix here asked the analog to advance to 3.5e-11 s: it
+  // never moved, every reading came back 0.000000, and the digital clock
+  // looked frozen at zero while in fact running normally. A units mistake
+  // in a coupling does not announce itself, it produces a flat waveform.
   //
   // A bare number sidesteps the bug entirely rather than depending on which
   // side of it a given expression falls on, so this stays as it is even
-  // once the bug is fixed.
+  // once the bug is fixed. Filed as aionhw/xezim#161.
   localparam int  TICK_NS   = 100;     // bare delay units == ns here
   localparam real SEC_PER_NS = 1.0e-9;
   localparam real TICK_S    = 100.0e-9;

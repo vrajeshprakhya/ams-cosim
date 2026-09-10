@@ -7,7 +7,20 @@ module pfd (
   output logic up,
   output logic dn
 );
-  localparam time RST_DELAY = 300ps;   // reset path delay, as a real one has
+  // A reset path delay, as a real one has. This is correct SystemVerilog
+  // and is left alone deliberately -- the file stands in for code the
+  // customer already owns.
+  //
+  // It also only WORKS by accident, and the accident is worth knowing
+  // about. This file declares no `timescale, so it takes xezim's 1 ns
+  // default, which is the one time unit at which aionhw/xezim#161 is a
+  // no-op: a time literal in a constant is folded against a fixed 1 ns
+  // instead of the module's unit, so 300ps folds to 0.3 and 0.3 ns is
+  // exactly right here. Add `timescale 1ps/1ps to the top of this file and
+  // the same 0.3 rounds to zero at that precision -- the reset delay
+  // disappears silently and the PFD develops a zero-width reset. Do not
+  // give this file a timescale until that issue is fixed.
+  localparam time RST_DELAY = 300ps;
 
   logic rst;
   assign #(RST_DELAY) rst = up & dn;
