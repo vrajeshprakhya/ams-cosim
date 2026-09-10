@@ -20,6 +20,20 @@ on:
   schedule:
     - cron: '17 6 * * 1'
 
+# Shared by both jobs, so the pin exists in ONE place. It used to be
+# job-level, with drift re-typing the same SHA into an echo -- two copies of
+# a value whose entire purpose is to be compared against a third.
+env:
+  # xezim is PINNED rather than tracked. This repo's job is to test itself,
+  # not to be the first to notice an upstream regression: a floating ref
+  # would make the gate red for reasons that have nothing to do with a
+  # change here. Bump deliberately, and read the drift job when you do --
+  # it is what tells you the pin has gone stale, and whether moving is safe.
+  XEZIM_REF: 340945e4d598ae30dad68209d199ee99be6d41d7
+  XEZIM: ${{ github.workspace }}/xezim/target/release/xezim
+  # TEMPORARY, and self-removing: see "Patch xezim-core" below.
+  XEZIM_CORE_PR_REV: 702dd7a59566da555e9b1350dca39a9900df8aca
+
 jobs:
   gate:
     # The authoritative check: a fixed xezim, so a red gate always means a
@@ -27,17 +41,6 @@ jobs:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 45
-
-    env:
-      # xezim is PINNED rather than tracked. This repo's job is to test
-      # itself, not to be the first to notice an upstream regression: a
-      # floating ref would make the gate red for reasons that have nothing
-      # to do with a change here. Bump deliberately, and read the failure
-      # when you do -- the drift job below is what tells you it is time.
-      XEZIM_REF: 90b730ca4f177b46be9986e2520538eedb171e55
-      XEZIM: ${{ github.workspace }}/xezim/target/release/xezim
-      # TEMPORARY, and self-removing: see "Patch xezim-core" below.
-      XEZIM_CORE_PR_REV: 702dd7a59566da555e9b1350dca39a9900df8aca
 
     steps:
       - uses: actions/checkout@v7
@@ -168,10 +171,6 @@ jobs:
     timeout-minutes: 45
     continue-on-error: true
 
-    env:
-      XEZIM: ${{ github.workspace }}/xezim/target/release/xezim
-      XEZIM_CORE_PR_REV: 702dd7a59566da555e9b1350dca39a9900df8aca
-
     steps:
       - uses: actions/checkout@v7
 
@@ -184,6 +183,10 @@ jobs:
         with:
           repository: aionhw/xezim
           path: xezim          # no ref: whatever main is today
+          # Full history, because this job's whole output is a comparison
+          # against XEZIM_REF: at the default depth of 1 the pinned commit
+          # is not in the clone and "what moved" cannot be computed.
+          fetch-depth: 0
 
       # Same temporary patch as the gate. Without it this job would sit
       # permanently amber for a reason that has nothing to do with drift,
@@ -199,9 +202,20 @@ jobs:
 
       - name: Report what is being tested
         run: |
-          echo "pinned in the gate: 90b730ca4f177b46be9986e2520538eedb171e55"
-          echo "xezim main today:   $(git -C xezim rev-parse HEAD)"
-          git -C xezim log --oneline -5
+          head=$(git -C xezim rev-parse HEAD)
+          echo "pinned in the gate: $XEZIM_REF"
+          echo "xezim main today:   $head"
+          if [ "$head" = "$XEZIM_REF" ]; then
+            echo "the pin is current"
+          elif git -C xezim cat-file -e "$XEZIM_REF^{commit}" 2>/dev/null; then
+            echo "the pin is BEHIND by:"
+            git -C xezim log --oneline "$XEZIM_REF..HEAD"
+          else
+            # A pinned commit that is no longer reachable from main -- force
+            # push, rebase, or a ref from a branch that went away. Worth
+            # saying out loud rather than reporting an empty diff.
+            echo "the pinned commit is NOT in this clone's history"
+          fi
 
       - uses: dtolnay/rust-toolchain@stable
 
