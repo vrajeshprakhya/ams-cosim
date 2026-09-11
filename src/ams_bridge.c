@@ -44,6 +44,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* stdbool.h above is REQUIRED, and must precede this include.
  *
@@ -95,7 +96,38 @@ static struct {
     int    n_dig;
 
     int    verbose;
+
+    /* WHERE THE RUN ACTUALLY GOES. The digital side blocks inside
+     * ams_advance for exactly as long as the analog needs to reach the
+     * granted time, so the wall clock spent in there is the analog's
+     * share and everything between two calls is the digital's. That makes
+     * the split a subtraction rather than a guess, and it is worth having
+     * because the answer is not close: on the PLL example the analog is
+     * ~96% of the run, so tuning the RTL is wasted effort and the only
+     * lever that matters is the SPICE side.
+     *
+     * READ prof_wait AS "ANALOG PLUS HANDOFF", not as solver time. Each
+     * advance call costs a condvar round trip, and there are one per
+     * coupling tick -- 29000 on the 3 us PLL gate. That overhead is on
+     * the order of 1% here, small enough to ignore and large enough to
+     * matter if the tick ever gets much finer, so it is named rather
+     * than silently folded into "SPICE". */
+    double prof_wait;     /* wall blocked inside ams_advance */
+    double prof_first;    /* first ams_advance entry */
+    double prof_last;     /* last ams_advance return */
+    long   prof_calls;
 } G;
+
+/* CLOCK_MONOTONIC, not CLOCK_REALTIME: the timeout deadlines elsewhere in
+ * this file want wall dates and can tolerate a step, but a duration that
+ * NTP can walk backwards is how a profile ends up reporting a negative
+ * share of the run. */
+static double prof_now(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (double)t.tv_sec + (double)t.tv_nsec * 1e-9;
+}
 
 static void lock(void)   { pthread_mutex_lock(&G.mtx); }
 static void unlock(void) { pthread_mutex_unlock(&G.mtx); }
@@ -229,6 +261,9 @@ int ams_open(const char *deck_path)
     G.ng_time = 0.0;
     G.finished = G.running = G.started = 0;
     G.verbose = getenv("AMS_BRIDGE_VERBOSE") != NULL;
+    G.prof_wait = 0.0;
+    G.prof_first = G.prof_last = 0.0;
+    G.prof_calls = 0;
 
     rc = ngSpice_Init(cb_send_char, cb_send_stat, cb_exit,
                       NULL, NULL, cb_bg_running, NULL);
@@ -326,6 +361,13 @@ int ams_advance(double t_stop)
 {
     struct timespec ts;
     int rc = 0;
+    double t_enter = prof_now();
+
+    /* prof_calls doubles as the "have we started" flag, so nothing here
+     * needs initialising to a sentinel that a second ams_open could miss. */
+    if (G.prof_calls == 0)
+        G.prof_first = t_enter;
+    G.prof_calls++;
 
     lock();
     if (t_stop > G.allow_until)
@@ -350,6 +392,8 @@ int ams_advance(double t_stop)
     if (G.finished && G.ng_time < t_stop)
         rc = 1;              /* the analog run ended early; not an error */
     unlock();
+    G.prof_last = prof_now();
+    G.prof_wait += G.prof_last - t_enter;
     return rc;
 }
 
@@ -469,4 +513,27 @@ void ams_close(void)
     unlock();
     ngSpice_Command("bg_halt");
     G.open = 0;
+
+    /* stderr, and prefixed like xezim's own profiling lines, so build.sh's
+     * `grep -vE '^\[(PROF|FUSE|COV|EVENT|PHASE)'` drops it from the example
+     * output. Run xezim directly to see it. A gate that grew a new line of
+     * chatter every time someone wanted a number is a gate people stop
+     * reading, and this number is for whoever is asking the question, not
+     * for the verdict. */
+    if (G.prof_calls > 0) {
+        double span = G.prof_last - G.prof_first;
+        double dig  = span - G.prof_wait;
+
+        if (span > 0.0) {
+            fprintf(stderr,
+                    "[PROF-AMS] coupled span %.3f s | analog %.3f s (%.1f%%) "
+                    "| digital %.3f s (%.1f%%) | %ld advance calls"
+                    " | analog:digital %.1f:1\n",
+                    span,
+                    G.prof_wait, 100.0 * G.prof_wait / span,
+                    dig, 100.0 * dig / span,
+                    G.prof_calls,
+                    dig > 0.0 ? G.prof_wait / dig : -1.0);
+        }
+    }
 }
