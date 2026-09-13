@@ -143,10 +143,21 @@ xcp  pupb pdn dra dd cpump
 xlf  dra vout lpfilt
 xvco aout vout dd ro_vco
 
-* Start near the control voltage the composed RNM settled at (1.8086 V), so
-* this run checks the loop HOLDS lock rather than paying for a full
-* acquisition -- at 50 ps steps an acquisition is hours of transistor-level
-* SPICE, and holding lock is the cheaper question that still exercises
-* every path around the loop.
-.ic v(vout)=1.8086 v(dra)=1.8086
+* Start at the control voltage THIS CIRCUIT locks to, so the run checks the
+* loop HOLDS lock rather than paying for a full acquisition -- at 50 ps
+* steps an acquisition is hours of transistor-level SPICE, and holding lock
+* is the cheaper question that still exercises every path around the loop.
+*
+* 1.8473 V is measured from the transistors alone: the co-simulation run out
+* to 20 us, where it reaches 400.00 MHz exactly and vout settles to within
+* 1.7 mV (1.8467..1.8484). The 3 us the testbench runs by default is
+* mid-settle ON PURPOSE, so it does not show this -- it lands near 397.5 MHz
+* around 1.834 V, still climbing.
+*
+* The previous value, 1.8086 V, was the lock point of a COMPOSED RNM rather
+* than of this circuit. That made the reference run's starting condition a
+* function of the model it is the reference for, and the 39 mV between them
+* was then read as the model's error. Whatever stands here has to come from
+* the transistors.
+.ic v(vout)=1.8473 v(dra)=1.8473
 .end
