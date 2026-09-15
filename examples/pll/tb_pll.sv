@@ -105,7 +105,21 @@ module tb;
     if (ams_drive("vpupb", VDD) != 0)          begin $display("AMS-FAIL drive1"); $finish; end
     if (ams_drive("vpdn", 0.0) != 0)           begin $display("AMS-FAIL drive2"); $finish; end
     // Grant ngspice a fine step; it may take smaller ones, never larger.
-    if (ams_start(20.0e-12, 3.0e-6) != 0)      begin $display("AMS-FAIL start"); $finish; end
+    //
+    // 5 ps, not the 20 ps this used to pass. That ceiling is what bounds
+    // how accurately an edge is resolved, and this VCO's period is an
+    // accumulation of edges: running its own deck standalone at the loop's
+    // settled control voltage, under a ceiling and then lifting it, gives
+    //
+    //     20 ps -> 400.005 MHz     2 ps -> 400.806 MHz
+    //    6.5 ps -> 400.726 MHz   0.5 ps -> 400.814 MHz
+    //
+    // so at 20 ps the transistor run was 0.2% slow -- enough to move the
+    // settled control voltage by 1.9 mV and to fail a real-number model
+    // that was ten times closer to the converged answer than this
+    // reference was. The error falls as the square of the step. 5 ps costs
+    // about four times the wall clock and leaves roughly 0.014%.
+    if (ams_start(5.0e-12, 3.0e-6) != 0)       begin $display("AMS-FAIL start"); $finish; end
     report_at = 4000;
   end
 
