@@ -148,16 +148,35 @@ xvco aout vout dd ro_vco
 * steps an acquisition is hours of transistor-level SPICE, and holding lock
 * is the cheaper question that still exercises every path around the loop.
 *
-* 1.8473 V is measured from the transistors alone: the co-simulation run out
-* to 20 us, where it reaches 400.00 MHz exactly and vout settles to within
-* 1.7 mV (1.8467..1.8484). The 3 us the testbench runs by default is
-* mid-settle ON PURPOSE, so it does not show this -- it lands near 397.5 MHz
-* around 1.834 V, still climbing.
+* 1.8495 V is measured from the transistors alone: the co-simulation run out
+* to 20 us at the 5 ps ceiling, where it reaches 400.00 MHz and vout settles
+* into 1.8494..1.8497 V -- a 0.3 mV band.
 *
-* The previous value, 1.8086 V, was the lock point of a COMPOSED RNM rather
-* than of this circuit. That made the reference run's starting condition a
-* function of the model it is the reference for, and the 39 mV between them
-* was then read as the model's error. Whatever stands here has to come from
-* the transistors.
-.ic v(vout)=1.8473 v(dra)=1.8473
+* What this .ic buys is the FREQUENCY: the 3 us default run holds 400.00 MHz
+* from the start rather than acquiring toward it. It does NOT make that run
+* settled, and starting it at the right voltage does not damp it. vout still
+* rings about 6 mV over 3 us -- up to 1.8531 V near 0.9 us, down to 1.8472 V
+* near 2.0 us, climbing again at the end -- because that ring is the loop
+* filter's own dynamics, and R2*C1 = 2 us sets it. An .ic on vout and dra
+* pins two nodes at t=0; it cannot pin the filter's remaining state or the
+* phase the divider happens to start in, which is what the loop rings out.
+* Settling needs run length, not a better starting point.
+*
+* The previous value, 1.8473 V, was measured the same way and from the same
+* circuit, but at the 20 ps ceiling, which simulates this ring slow enough to
+* move the lock point: it reported 1.8467..1.8484 V. That is 2.1 mV from
+* where this circuit sits, and larger than the 1.85 mV bar the models are
+* judged against -- so the reference's own timestep was setting the starting
+* condition for the experiment that judges them. A value from a COARSE run
+* fails the same way as one from a SHORT run, and is harder to notice,
+* because nothing about it looks short.
+*
+* Before that, 1.8086 V was the lock point of a COMPOSED RNM rather than of
+* this circuit. That made the reference run's starting condition a function
+* of the model it is the reference for, and the 39 mV between them was then
+* read as the model's error.
+*
+* Whatever stands here has to come from the transistors, simulated finely
+* enough that the number is the circuit's and not the timestep's.
+.ic v(vout)=1.8495 v(dra)=1.8495
 .end
